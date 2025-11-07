@@ -352,3 +352,6 @@ bool HybridHashTable<Key, Value>::displace(size_t index) {
 
 // Explicit instantiations
 template class HybridHashTable<std::string, int>;
+
+// Explicit instantiation for std::string keys and values
+template class HybridHashTable<std::string, std::string>;

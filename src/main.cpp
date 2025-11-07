@@ -1,105 +1,72 @@
 #include "HybridHashTable.hpp"
 #include <iostream>
-#include <vector>
+#include <fstream>
+#include <sstream>
 #include <string>
-#include <chrono>
-#include <random>
+#include <vector>
 #include <thread>
-#include <algorithm>
+#include <chrono>
 
-// Utility: Generate random strings (e.g., for URLs or keys)
-std::string generateRandomString(size_t length) {
-    static const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    static std::mt19937 rng(std::random_device{}());
-    static std::uniform_int_distribution<size_t> dist(0, sizeof(charset) - 2);
-    std::string result;
-    result.reserve(length);
-    for (size_t i = 0; i < length; ++i) {
-        result += charset[dist(rng)];
-    }
-    return result;
-}
-
-// Test function for big data
-void runBigDataTest(size_t numElements, HashMode mode, bool multithreaded = false) {
-    HybridHashTable<std::string, int> table(1000000, 2.0);  // Large initial size
-    table.setMode(mode);
-
-    std::cout << "\n=== Testing " << numElements << " elements in " 
-              << (mode == HashMode::Cuckoo ? "Cuckoo" : mode == HashMode::Hopscotch ? "Hopscotch" : "Robin Hood") 
-              << " mode (" << (multithreaded ? "Multithreaded" : "Single-threaded") << ") ===\n";
-
-    // Generate dataset: Mix of random strings and sequential IDs for realism
-    std::vector<std::pair<std::string, int>> dataset;
-    dataset.reserve(numElements);
-    for (size_t i = 0; i < numElements / 2; ++i) {
-        dataset.emplace_back(generateRandomString(10), i);  // Random keys (e.g., URLs)
-    }
-    for (size_t i = numElements / 2; i < numElements; ++i) {
-        dataset.emplace_back("user" + std::to_string(i), i);  // Sequential keys (e.g., user IDs)
+void loadFromFile(HybridHashTable<std::string, std::string>& table, const std::string& filename, std::vector<std::string>& keys) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Cannot open file " << filename << "\n";
+        return;
     }
 
-    // Insert test
+    std::string line;
+    size_t inserted = 0;
     auto start = std::chrono::high_resolution_clock::now();
-    if (multithreaded) {
-        std::vector<std::thread> threads;
-        size_t chunkSize = numElements / 4;  // 4 threads
-        for (size_t t = 0; t < 4; ++t) {
-            threads.emplace_back([&table, &dataset, t, chunkSize]() {
-                for (size_t i = t * chunkSize; i < (t + 1) * chunkSize && i < dataset.size(); ++i) {
-                    table.insert(dataset[i].first, dataset[i].second);
-                }
-            });
-        }
-        for (auto& th : threads) th.join();
-    } else {
-        for (const auto& item : dataset) {
-            table.insert(item.first, item.second);
-        }
-    }
-    auto end = std::chrono::high_resolution_clock::now();
-    double insertTime = std::chrono::duration<double>(end - start).count();
-    std::cout << "Insert time: " << insertTime << "s (" << numElements / insertTime << " ops/sec)\n";
-    std::cout << "Load factor after insert: " << table.loadFactor() << "\n";
-
-    // Search test (random subset)
-    std::shuffle(dataset.begin(), dataset.end(), std::mt19937(std::random_device{}()));
-    size_t searchCount = std::min(numElements / 10, size_t(100000));  // Search 10% or 100k
-    start = std::chrono::high_resolution_clock::now();
-    size_t found = 0;
-    for (size_t i = 0; i < searchCount; ++i) {
-        if (table.search(dataset[i].first)) ++found;
-    }
-    end = std::chrono::high_resolution_clock::now();
-    double searchTime = std::chrono::duration<double>(end - start).count();
-    std::cout << "Search time (" << searchCount << " ops): " << searchTime << "s (" << searchCount / searchTime << " ops/sec)\n";
-    std::cout << "Found: " << found << "/" << searchCount << "\n";
-
-    // Remove test (random subset)
-    start = std::chrono::high_resolution_clock::now();
-    size_t removed = 0;
-    for (size_t i = 0; i < searchCount; ++i) {
-        if (table.remove(dataset[i].first)) ++removed;
-    }
-    end = std::chrono::high_resolution_clock::now();
-    double removeTime = std::chrono::duration<double>(end - start).count();
-    std::cout << "Remove time (" << searchCount << " ops): " << removeTime << "s (" << searchCount / removeTime << " ops/sec)\n";
-    std::cout << "Removed: " << removed << "/" << searchCount << "\n";
-    std::cout << "Final size: " << table.size() << ", load factor: " << table.loadFactor() << "\n";
-}
-
-int main() {
-    std::vector<size_t> sizes = {100000,1000000};
-    std::vector<HashMode> modes = {HashMode::Hopscotch, HashMode::RobinHood, HashMode::Cuckoo};
-    for (size_t size : sizes) {
-        for (HashMode mode : modes) {
-            if (mode == HashMode::Hopscotch && size > 100000) continue;  // Skip large Hopscotch
-            runBigDataTest(size, mode, false);
-            if (size <= 100000) {  // Multithreaded for smaller sizes
-                runBigDataTest(size, mode, true);
+    while (std::getline(file, line)) {
+        std::stringstream ss(line);
+        std::string key, value;
+        if (std::getline(ss, key, ',') && std::getline(ss, value)) {
+            if (table.insert(key, value)) {
+                inserted++;
+                keys.push_back(key);  // Store keys for later operations
             }
         }
     }
-    std::cout << "\n=== All tests completed ===\n";
+    auto end = std::chrono::high_resolution_clock::now();
+    double time = std::chrono::duration<double>(end - start).count();
+    file.close();
+    std::cout << inserted << " items inserted in " << time << "s (" << inserted / time << " inserts/sec)\n";
+}
+
+void performOperations(HybridHashTable<std::string, std::string>& table, const std::vector<std::string>& keys) {
+    // Search all items
+    size_t found = 0;
+    auto searchStart = std::chrono::high_resolution_clock::now();
+    for (const auto& key : keys) {
+        if (table.search(key)) found++;
+    }
+    auto searchEnd = std::chrono::high_resolution_clock::now();
+    double searchTime = std::chrono::duration<double>(searchEnd - searchStart).count();
+    std::cout << found << " items searched (out of " << keys.size() << ") in " << searchTime << "s (" << keys.size() / searchTime << " searches/sec)\n";
+
+    // Remove all items
+    size_t removed = 0;
+    auto removeStart = std::chrono::high_resolution_clock::now();
+    for (const auto& key : keys) {
+        if (table.remove(key)) removed++;
+    }
+    auto removeEnd = std::chrono::high_resolution_clock::now();
+    double removeTime = std::chrono::duration<double>(removeEnd - removeStart).count();
+    std::cout << removed << " items removed (out of " << keys.size() << ") in " << removeTime << "s (" << keys.size() / removeTime << " removes/sec)\n";
+}
+
+int main() {
+    HybridHashTable<std::string, std::string> table(1000000, 2.0);
+    table.setMode(HashMode::RobinHood);
+
+    std::vector<std::string> keys;  // To store keys for operations
+
+    // Load data from file
+    loadFromFile(table, "data.csv", keys);
+    std::cout << "Final size: " << table.size() << ", load factor: " << table.loadFactor() << "\n";
+
+    // Perform operations on all items
+    performOperations(table, keys);
+
     return 0;
 }
