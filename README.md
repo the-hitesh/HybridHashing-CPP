@@ -128,4 +128,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-**Made with ❤️ in C++. Star this repo if you find it cool!** ⭐
+**Made with ❤️ in C++. Star this repo if you find it cool!** ⭐.
