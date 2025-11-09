@@ -36,7 +36,7 @@ It's not just code—it's an **innovation** for high-performance apps like datab
 
 ### Build Steps
 ```bash
-git clone https://github.com/yourusername/HybridHashing-CPP.git
+git clone https://github.com/the-hitesh/HybridHashing-CPP.git
 cd HybridHashing-CPP
 mkdir build && cd build
 cmake ..
